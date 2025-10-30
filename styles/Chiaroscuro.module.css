@@ -1,0 +1,45 @@
+/* Chiaroscuro Styles */
+
+.chiaroscuroContainer {
+  position: relative;
+  overflow: hidden;
+  background: #0a0a0a;
+}
+
+.canvas {
+  display: block;
+  cursor: default;
+}
+
+.canvas:active {
+  cursor: grabbing !important;
+}
+
+/* Smooth transitions for UI elements */
+.controlPanel {
+  transition: all 0.3s ease-in-out;
+}
+
+/* Loading states */
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Glow effects for interactive elements */
+.glowButton {
+  box-shadow: 0 0 20px rgba(231, 76, 60, 0.5);
+  transition: box-shadow 0.3s ease;
+}
+
+.glowButton:hover {
+  box-shadow: 0 0 30px rgba(231, 76, 60, 0.8);
+}
