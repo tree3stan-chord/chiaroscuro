@@ -7,7 +7,7 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
   const blobPhysicsRef = useRef(null);
-  const mouseRef = useRef({ x: 0, y: 0, isDown: false, draggedBlob: null });
+  const mouseRef = useRef({ x: 0, y: 0, isDown: false, draggedBlob: null, shiftHeld: false, dragStartPos: null });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -22,6 +22,22 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     };
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
+
+    // Track shift key
+    const handleKeyDown = (e) => {
+      if (e.key === 'Shift') {
+        mouseRef.current.shiftHeld = true;
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      if (e.key === 'Shift') {
+        mouseRef.current.shiftHeld = false;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
 
     // Initialize blob physics
     if (!blobPhysicsRef.current) {
@@ -51,6 +67,8 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
 
     return () => {
       window.removeEventListener('resize', resizeCanvas);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
@@ -100,15 +118,17 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     mouseRef.current.x = x;
     mouseRef.current.y = y;
     mouseRef.current.isDown = true;
+    mouseRef.current.shiftHeld = e.shiftKey;
 
     // Check if clicking on a blob
     const blob = blobPhysicsRef.current.getBlobAtPosition(x, y);
     if (blob) {
       mouseRef.current.draggedBlob = blob;
+      mouseRef.current.dragStartPos = { x: blob.x, y: blob.y };
       blob.isDragging = true;
 
-      // Start audio synthesis on drag
-      if (audioEngine && isActive) {
+      // Start audio synthesis on drag when shift is held
+      if (mouseRef.current.shiftHeld && audioEngine && isActive) {
         audioEngine.startGrainSynthesis();
       }
     }
@@ -129,37 +149,51 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
 
     if (mouseRef.current.isDown && mouseRef.current.draggedBlob) {
       const blob = mouseRef.current.draggedBlob;
+      const isShiftHeld = e.shiftKey || mouseRef.current.shiftHeld;
 
-      // Update blob position
-      blob.x = x;
-      blob.y = y;
+      if (isShiftHeld) {
+        // Shift held: keep blob at original position, manipulate audio
+        if (mouseRef.current.dragStartPos) {
+          blob.x = mouseRef.current.dragStartPos.x;
+          blob.y = mouseRef.current.dragStartPos.y;
+        }
 
-      // Calculate drag velocity for audio parameters
-      const dx = x - prevX;
-      const dy = y - prevY;
+        // Calculate drag distance from start for audio parameters
+        const dx = x - mouseRef.current.dragStartPos.x;
+        const dy = y - mouseRef.current.dragStartPos.y;
 
-      // Map drag to audio parameters
-      if (audioEngine && isActive) {
-        // Horizontal drag = time stretch (1x to 4x)
-        const stretchFactor = 1 + Math.abs(dx) * 0.1;
-        audioEngine.setTimeStretch(Math.min(stretchFactor, 4));
+        // Map drag distance to audio parameters
+        if (audioEngine && isActive) {
+          // Horizontal drag = time stretch (1x to 4x)
+          const stretchFactor = 1 + Math.abs(dx) * 0.01;
+          audioEngine.setTimeStretch(Math.min(stretchFactor, 4));
 
-        // Vertical drag = pitch shift (-12 to +12 semitones)
-        const pitchShift = -dy * 0.1;
-        audioEngine.setPitchShift(Math.max(-12, Math.min(12, pitchShift)));
+          // Vertical drag = pitch shift (-12 to +12 semitones)
+          const pitchShift = -dy * 0.05;
+          audioEngine.setPitchShift(Math.max(-12, Math.min(12, pitchShift)));
+        }
+      } else {
+        // No shift: normal drag to move blob
+        blob.x = x;
+        blob.y = y;
       }
     }
 
     // Update cursor style
     const blob = blobPhysicsRef.current.getBlobAtPosition(x, y);
-    canvasRef.current.style.cursor = blob ? 'grab' : 'default';
+    if (blob) {
+      const isShiftHeld = e.shiftKey || mouseRef.current.shiftHeld;
+      canvasRef.current.style.cursor = isShiftHeld ? 'crosshair' : 'grab';
+    } else {
+      canvasRef.current.style.cursor = 'default';
+    }
   };
 
   const handleMouseUp = () => {
     if (mouseRef.current.draggedBlob) {
       mouseRef.current.draggedBlob.isDragging = false;
 
-      // Stop audio synthesis
+      // Stop audio synthesis if it was started
       if (audioEngine && isActive) {
         audioEngine.stopGrainSynthesis();
       }
@@ -167,6 +201,7 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
 
     mouseRef.current.isDown = false;
     mouseRef.current.draggedBlob = null;
+    mouseRef.current.dragStartPos = null;
   };
 
   return (
