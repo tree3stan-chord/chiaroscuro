@@ -33,13 +33,3 @@ function App() {
   return <ChiaroscuroSandbox />;
 }
 ```
-
-## Development Status
-
-**Current Version**: 0.1.0 (MVP in progress)
-
-See [CHIAROSCURO_ROADMAP.md](../studio/CHIAROSCURO_ROADMAP.md) in the Studio repository for detailed development plan.
-
-## License
-
-Private - Part of the Studio Audio Production Suite
