@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import BlobPhysics from '../lib/BlobPhysics';
 import Explosion from '../lib/Explosion';
+import KeyboardSynth from '../lib/KeyboardSynth';
+import SynthBlob from '../lib/SynthBlob';
 
 const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   const canvasRef = useRef(null);
@@ -10,7 +12,9 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   const blobPhysicsRef = useRef(null);
   const explosionsRef = useRef([]); // Track active explosions
   const currentBandEnergiesRef = useRef(null); // Store current band energies for explosion color
-  const mouseRef = useRef({ x: 0, y: 0, isDown: false, draggedBlob: null, shiftHeld: false, dragStartPos: null });
+  const keyboardSynthRef = useRef(null); // Keyboard synth instance
+  const synthBlobsRef = useRef([]); // Track synth-generated blobs
+  const mouseRef = useRef({ x: 0, y: 0, isDown: false, draggedBlob: null, draggedSynthBlob: null, shiftHeld: false, dragStartPos: null });
   const [layout, setLayout] = useState('arc'); // 'arc', 'bar', or 'organic'
 
   useEffect(() => {
@@ -27,8 +31,44 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
+    // Initialize keyboard synth
+    if (!keyboardSynthRef.current && audioEngine) {
+      keyboardSynthRef.current = new KeyboardSynth(audioEngine);
+
+      // Callback when note starts: create synth blob
+      keyboardSynthRef.current.onNoteStart = (noteInfo, key) => {
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+
+        // Spawn with slight random offset
+        const offsetX = (Math.random() - 0.5) * 100;
+        const offsetY = (Math.random() - 0.5) * 100;
+
+        const blob = new SynthBlob(
+          centerX + offsetX,
+          centerY + offsetY,
+          noteInfo,
+          key
+        );
+
+        synthBlobsRef.current.push(blob);
+        return blob.id;
+      };
+
+      // Callback when note ends: fade out synth blob
+      keyboardSynthRef.current.onNoteEnd = (blobId, key, noteInfo) => {
+        const blob = synthBlobsRef.current.find(b => b.id === blobId);
+        if (blob) {
+          blob.fadeOut();
+        }
+      };
+    }
+
     // Track shift key and handle keyboard shortcuts
     const handleKeyDown = (e) => {
+      // Don't process if typing in an input field
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
       if (e.key === 'Shift') {
         mouseRef.current.shiftHeld = true;
       }
@@ -44,12 +84,28 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
           console.log(`Layout: ${prev} → ${nextLayout}`);
           return nextLayout;
         });
+        return;
+      }
+
+      // Keyboard synth: play note on key press
+      if (keyboardSynthRef.current && !e.repeat) {
+        const key = e.key.toLowerCase();
+        keyboardSynthRef.current.startNote(key);
       }
     };
 
     const handleKeyUp = (e) => {
+      // Don't process if typing in an input field
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
       if (e.key === 'Shift') {
         mouseRef.current.shiftHeld = false;
+      }
+
+      // Keyboard synth: stop note on key release
+      if (keyboardSynthRef.current) {
+        const key = e.key.toLowerCase();
+        keyboardSynthRef.current.stopNote(key);
       }
     };
 
@@ -99,6 +155,23 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       explosionsRef.current = explosionsRef.current.filter(e => !e.isDead());
       explosionsRef.current.forEach(explosion => explosion.render(ctx));
 
+      // Update and render synth blobs
+      synthBlobsRef.current.forEach(blob => {
+        blob.update(canvas.width, canvas.height);
+
+        // Update synth modulation if blob is being dragged
+        if (blob.isDragging && keyboardSynthRef.current) {
+          const modulationParams = blob.getModulationParams();
+          keyboardSynthRef.current.modulateNote(blob.key, modulationParams);
+        }
+      });
+
+      // Remove dead synth blobs
+      synthBlobsRef.current = synthBlobsRef.current.filter(b => !b.isDead());
+
+      // Render synth blobs (on top of analysis blobs)
+      synthBlobsRef.current.forEach(blob => blob.render(ctx));
+
       animationRef.current = requestAnimationFrame(animate);
     };
 
@@ -110,6 +183,9 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       window.removeEventListener('keyup', handleKeyUp);
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
+      }
+      if (keyboardSynthRef.current) {
+        keyboardSynthRef.current.cleanup();
       }
     };
   }, [isActive, audioLevel, audioEngine, layout]);
@@ -171,7 +247,23 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     mouseRef.current.isDown = true;
     mouseRef.current.shiftHeld = e.shiftKey;
 
-    // Check if clicking on a blob
+    // Check if clicking on a synth blob first (they render on top)
+    let clickedSynthBlob = null;
+    for (let i = synthBlobsRef.current.length - 1; i >= 0; i--) {
+      if (synthBlobsRef.current[i].contains(x, y)) {
+        clickedSynthBlob = synthBlobsRef.current[i];
+        break;
+      }
+    }
+
+    if (clickedSynthBlob) {
+      // Dragging a synth blob
+      mouseRef.current.draggedSynthBlob = clickedSynthBlob;
+      clickedSynthBlob.startDrag();
+      return;
+    }
+
+    // Check if clicking on an analysis blob
     const blob = blobPhysicsRef.current.getBlobAtPosition(x, y);
     if (blob) {
       mouseRef.current.draggedBlob = blob;
@@ -207,6 +299,16 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     mouseRef.current.x = x;
     mouseRef.current.y = y;
 
+    // Handle synth blob dragging
+    if (mouseRef.current.isDown && mouseRef.current.draggedSynthBlob) {
+      const synthBlob = mouseRef.current.draggedSynthBlob;
+      synthBlob.x = x;
+      synthBlob.y = y;
+      // Modulation happens in animation loop
+      return;
+    }
+
+    // Handle analysis blob dragging
     if (mouseRef.current.isDown && mouseRef.current.draggedBlob) {
       const blob = mouseRef.current.draggedBlob;
       const isShiftHeld = e.shiftKey || mouseRef.current.shiftHeld;
@@ -240,16 +342,36 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     }
 
     // Update cursor style
-    const blob = blobPhysicsRef.current.getBlobAtPosition(x, y);
-    if (blob) {
-      const isShiftHeld = e.shiftKey || mouseRef.current.shiftHeld;
-      canvasRef.current.style.cursor = isShiftHeld ? 'crosshair' : 'grab';
+    // Check synth blobs first
+    let hoveredSynthBlob = false;
+    for (let i = synthBlobsRef.current.length - 1; i >= 0; i--) {
+      if (synthBlobsRef.current[i].contains(x, y)) {
+        hoveredSynthBlob = true;
+        break;
+      }
+    }
+
+    if (hoveredSynthBlob) {
+      canvasRef.current.style.cursor = 'grab';
     } else {
-      canvasRef.current.style.cursor = 'default';
+      const blob = blobPhysicsRef.current.getBlobAtPosition(x, y);
+      if (blob) {
+        const isShiftHeld = e.shiftKey || mouseRef.current.shiftHeld;
+        canvasRef.current.style.cursor = isShiftHeld ? 'crosshair' : 'grab';
+      } else {
+        canvasRef.current.style.cursor = 'default';
+      }
     }
   };
 
   const handleMouseUp = () => {
+    // Stop synth blob dragging
+    if (mouseRef.current.draggedSynthBlob) {
+      mouseRef.current.draggedSynthBlob.stopDrag();
+      mouseRef.current.draggedSynthBlob = null;
+    }
+
+    // Stop analysis blob dragging
     if (mouseRef.current.draggedBlob) {
       mouseRef.current.draggedBlob.isDragging = false;
 
