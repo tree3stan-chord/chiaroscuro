@@ -2,11 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import BlobPhysics from '../lib/BlobPhysics';
+import Explosion from '../lib/Explosion';
 
 const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
   const blobPhysicsRef = useRef(null);
+  const explosionsRef = useRef([]); // Track active explosions
+  const currentBandEnergiesRef = useRef(null); // Store current band energies for explosion color
   const mouseRef = useRef({ x: 0, y: 0, isDown: false, draggedBlob: null, shiftHeld: false, dragStartPos: null });
   const [layout, setLayout] = useState('arc'); // 'arc', 'bar', or 'organic'
 
@@ -79,6 +82,9 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
           bandEnergies = new Array(24).fill(0);
         }
 
+        // Store current band energies for explosion color
+        currentBandEnergiesRef.current = bandEnergies;
+
         // Update blob physics
         blobPhysicsRef.current.update(bandEnergies);
 
@@ -87,6 +93,11 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
           renderBlob(ctx, blob);
         });
       }
+
+      // Update and render explosions
+      explosionsRef.current.forEach(explosion => explosion.update());
+      explosionsRef.current = explosionsRef.current.filter(e => !e.isDead());
+      explosionsRef.current.forEach(explosion => explosion.render(ctx));
 
       animationRef.current = requestAnimationFrame(animate);
     };
@@ -171,6 +182,15 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       if (mouseRef.current.shiftHeld && audioEngine && isActive) {
         audioEngine.startGrainSynthesis();
       }
+    } else {
+      // Clicking on empty space - create explosion!
+      const explosion = new Explosion(
+        x,
+        y,
+        isActive ? audioEngine : null,
+        currentBandEnergiesRef.current
+      );
+      explosionsRef.current.push(explosion);
     }
   };
 
