@@ -104,35 +104,47 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   }, [isActive, audioLevel, audioEngine, layout]);
 
   const renderBlob = (ctx, blob) => {
-    // Create radial gradient for glow effect
+    ctx.save();
+
+    // Apply transformation for organic shape
+    ctx.translate(blob.x, blob.y);
+    ctx.rotate(blob.rotation || 0);
+    ctx.scale(blob.scaleX || 1, blob.scaleY || 1);
+
+    // Create radial gradient for glow effect (centered at origin after transform)
     const gradient = ctx.createRadialGradient(
-      blob.x, blob.y, 0,
-      blob.x, blob.y, blob.radius
+      0, 0, 0,
+      0, 0, blob.radius
     );
 
     // Color based on frequency (hue rotation)
     const hue = blob.hue || 0;
-    gradient.addColorStop(0, `hsla(${hue}, 80%, 60%, 0.9)`);
-    gradient.addColorStop(0.5, `hsla(${hue}, 70%, 50%, 0.6)`);
+
+    // Vary opacity based on energy for more life
+    const energyOpacity = Math.max(0.5, blob.energy);
+    gradient.addColorStop(0, `hsla(${hue}, 80%, 60%, ${energyOpacity * 0.9})`);
+    gradient.addColorStop(0.5, `hsla(${hue}, 70%, 50%, ${energyOpacity * 0.6})`);
     gradient.addColorStop(1, `hsla(${hue}, 60%, 40%, 0)`);
 
     ctx.fillStyle = gradient;
     ctx.beginPath();
-    ctx.arc(blob.x, blob.y, blob.radius, 0, Math.PI * 2);
+    ctx.arc(0, 0, blob.radius, 0, Math.PI * 2);
     ctx.fill();
 
     // Add inner glow
     const innerGradient = ctx.createRadialGradient(
-      blob.x, blob.y, 0,
-      blob.x, blob.y, blob.radius * 0.5
+      0, 0, 0,
+      0, 0, blob.radius * 0.5
     );
-    innerGradient.addColorStop(0, `hsla(${hue}, 90%, 80%, 0.4)`);
+    innerGradient.addColorStop(0, `hsla(${hue}, 90%, 80%, ${energyOpacity * 0.4})`);
     innerGradient.addColorStop(1, `hsla(${hue}, 80%, 60%, 0)`);
 
     ctx.fillStyle = innerGradient;
     ctx.beginPath();
-    ctx.arc(blob.x, blob.y, blob.radius * 0.5, 0, Math.PI * 2);
+    ctx.arc(0, 0, blob.radius * 0.5, 0, Math.PI * 2);
     ctx.fill();
+
+    ctx.restore();
   };
 
   // Mouse event handlers
