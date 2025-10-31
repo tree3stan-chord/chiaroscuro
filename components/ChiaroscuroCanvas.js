@@ -8,6 +8,7 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   const animationRef = useRef(null);
   const blobPhysicsRef = useRef(null);
   const mouseRef = useRef({ x: 0, y: 0, isDown: false, draggedBlob: null, shiftHeld: false, dragStartPos: null });
+  const [layout, setLayout] = useState('arc'); // 'arc', 'bar', or 'organic'
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -23,10 +24,23 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    // Track shift key
+    // Track shift key and handle keyboard shortcuts
     const handleKeyDown = (e) => {
       if (e.key === 'Shift') {
         mouseRef.current.shiftHeld = true;
+      }
+
+      // Ctrl+L: Toggle layout
+      if (e.ctrlKey && e.key === 'l') {
+        e.preventDefault();
+        setLayout(prev => {
+          const layouts = ['arc', 'bar', 'organic'];
+          const currentIndex = layouts.indexOf(prev);
+          const nextIndex = (currentIndex + 1) % layouts.length;
+          const nextLayout = layouts[nextIndex];
+          console.log(`Layout: ${prev} → ${nextLayout}`);
+          return nextLayout;
+        });
       }
     };
 
@@ -41,7 +55,12 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
 
     // Initialize blob physics
     if (!blobPhysicsRef.current) {
-      blobPhysicsRef.current = new BlobPhysics(canvas.width, canvas.height);
+      blobPhysicsRef.current = new BlobPhysics(canvas.width, canvas.height, layout);
+    }
+
+    // Update layout when it changes
+    if (blobPhysicsRef.current && blobPhysicsRef.current.layout !== layout) {
+      blobPhysicsRef.current.setLayout(layout);
     }
 
     // Animation loop
@@ -50,9 +69,18 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       ctx.fillStyle = '#0a0a0a';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      if (isActive && blobPhysicsRef.current) {
+      if (blobPhysicsRef.current) {
+        // Get band energies from audio engine
+        let bandEnergies;
+        if (isActive && audioEngine) {
+          bandEnergies = audioEngine.getBandEnergies();
+        } else {
+          // Idle state: use zero energies
+          bandEnergies = new Array(24).fill(0);
+        }
+
         // Update blob physics
-        blobPhysicsRef.current.update(audioLevel);
+        blobPhysicsRef.current.update(bandEnergies);
 
         // Render blobs
         blobPhysicsRef.current.blobs.forEach(blob => {
@@ -73,7 +101,7 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [isActive, audioLevel]);
+  }, [isActive, audioLevel, audioEngine, layout]);
 
   const renderBlob = (ctx, blob) => {
     // Create radial gradient for glow effect
