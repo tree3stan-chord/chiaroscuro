@@ -102,7 +102,19 @@ const ChiaroscuroSandbox = () => {
   };
 
   return (
-    <Container fluid className="chiaroscuro-container p-0" style={{ height: '100vh', overflow: 'hidden' }}>
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        margin: 0,
+        padding: 0,
+        overflow: 'hidden',
+        background: '#0a0a0a'
+      }}
+    >
       {error && (
         <Alert variant="danger" className="m-3" dismissible onClose={() => setError(null)}>
           {error}
@@ -161,7 +173,7 @@ const ChiaroscuroSandbox = () => {
           )}
         </Button>
       </div>
-    </Container>
+    </div>
   );
 };
 
