@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import BlobPhysics from '../lib/BlobPhysics';
-import Explosion from '../lib/Explosion';
+import TonalBlob from '../lib/TonalBlob';
 import KeyboardSynth from '../lib/KeyboardSynth';
 import SynthBlob from '../lib/SynthBlob';
 
@@ -10,11 +10,11 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
   const blobPhysicsRef = useRef(null);
-  const explosionsRef = useRef([]); // Track active explosions
-  const currentBandEnergiesRef = useRef(null); // Store current band energies for explosion color
+  const tonalBlobsRef = useRef([]); // Track click-spawned tonal blobs
+  const currentBandEnergiesRef = useRef(null); // Store current band energies
   const keyboardSynthRef = useRef(null); // Keyboard synth instance
   const synthBlobsRef = useRef([]); // Track synth-generated blobs
-  const mouseRef = useRef({ x: 0, y: 0, isDown: false, draggedBlob: null, draggedSynthBlob: null, shiftHeld: false, dragStartPos: null });
+  const mouseRef = useRef({ x: 0, y: 0, isDown: false, draggedBlob: null, draggedSynthBlob: null, draggedTonalBlob: null, shiftHeld: false, dragStartPos: null });
   const [layout, setLayout] = useState('arc'); // 'arc', 'bar', or 'organic'
 
   useEffect(() => {
@@ -150,10 +150,10 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
         });
       }
 
-      // Update and render explosions
-      explosionsRef.current.forEach(explosion => explosion.update());
-      explosionsRef.current = explosionsRef.current.filter(e => !e.isDead());
-      explosionsRef.current.forEach(explosion => explosion.render(ctx));
+      // Update and render tonal blobs
+      tonalBlobsRef.current.forEach(blob => blob.update(canvas.width, canvas.height));
+      tonalBlobsRef.current = tonalBlobsRef.current.filter(b => !b.isDead());
+      tonalBlobsRef.current.forEach(blob => blob.render(ctx));
 
       // Update and render synth blobs
       synthBlobsRef.current.forEach(blob => {
@@ -331,14 +331,31 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
         audioEngine.startGrainSynthesis();
       }
     } else {
-      // Clicking on empty space - create explosion!
-      const explosion = new Explosion(
-        x,
-        y,
-        isActive ? audioEngine : null,
-        currentBandEnergiesRef.current
-      );
-      explosionsRef.current.push(explosion);
+      // Check if clicking on an existing tonal blob (to drag or remove)
+      let clickedTonalBlob = null;
+      for (let i = tonalBlobsRef.current.length - 1; i >= 0; i--) {
+        if (tonalBlobsRef.current[i].contains(x, y)) {
+          clickedTonalBlob = tonalBlobsRef.current[i];
+          break;
+        }
+      }
+
+      if (clickedTonalBlob) {
+        // Start dragging tonal blob
+        mouseRef.current.draggedTonalBlob = clickedTonalBlob;
+        mouseRef.current.tonalBlobClickTime = Date.now(); // Track click time for click vs drag
+        clickedTonalBlob.startDrag();
+      } else {
+        // Clicking on empty space - create tonal blob!
+        const tonalBlob = new TonalBlob(
+          x,
+          y,
+          audioEngine,
+          canvasRef.current.width,
+          canvasRef.current.height
+        );
+        tonalBlobsRef.current.push(tonalBlob);
+      }
     }
   };
 
@@ -361,6 +378,15 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       synthBlob.x = x;
       synthBlob.y = y;
       // Modulation happens in animation loop
+      return;
+    }
+
+    // Handle tonal blob dragging
+    if (mouseRef.current.isDown && mouseRef.current.draggedTonalBlob) {
+      const tonalBlob = mouseRef.current.draggedTonalBlob;
+      tonalBlob.x = x;
+      tonalBlob.y = y;
+      // Audio modulation happens in blob's update method
       return;
     }
 
@@ -435,12 +461,25 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     if (hoveredSynthBlob) {
       canvasRef.current.style.cursor = 'grab';
     } else {
-      const blob = blobPhysicsRef.current.getBlobAtPosition(x, y);
-      if (blob) {
-        const isShiftHeld = e.shiftKey || mouseRef.current.shiftHeld;
-        canvasRef.current.style.cursor = isShiftHeld ? 'crosshair' : 'grab';
+      // Check tonal blobs
+      let hoveredTonalBlob = false;
+      for (let i = tonalBlobsRef.current.length - 1; i >= 0; i--) {
+        if (tonalBlobsRef.current[i].contains(x, y)) {
+          hoveredTonalBlob = true;
+          break;
+        }
+      }
+
+      if (hoveredTonalBlob) {
+        canvasRef.current.style.cursor = 'pointer'; // Different cursor for tonal blobs
       } else {
-        canvasRef.current.style.cursor = 'default';
+        const blob = blobPhysicsRef.current.getBlobAtPosition(x, y);
+        if (blob) {
+          const isShiftHeld = e.shiftKey || mouseRef.current.shiftHeld;
+          canvasRef.current.style.cursor = isShiftHeld ? 'crosshair' : 'grab';
+        } else {
+          canvasRef.current.style.cursor = 'default';
+        }
       }
     }
   };
@@ -450,6 +489,24 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     if (mouseRef.current.draggedSynthBlob) {
       mouseRef.current.draggedSynthBlob.stopDrag();
       mouseRef.current.draggedSynthBlob = null;
+    }
+
+    // Handle tonal blob click vs drag
+    if (mouseRef.current.draggedTonalBlob) {
+      const blob = mouseRef.current.draggedTonalBlob;
+      const dragTime = Date.now() - (mouseRef.current.tonalBlobClickTime || 0);
+
+      if (dragTime < 200) {
+        // Quick click = remove the blob
+        blob.remove();
+        console.log(`Removing tonal blob: ${blob.baseFrequency.toFixed(1)}Hz`);
+      } else {
+        // Was a drag = stop modulating, reset audio to base state
+        blob.stopDrag();
+      }
+
+      mouseRef.current.draggedTonalBlob = null;
+      mouseRef.current.tonalBlobClickTime = null;
     }
 
     // Stop analysis blob dragging
