@@ -288,7 +288,19 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       mouseRef.current.dragStartPos = { x: blob.x, y: blob.y };
       blob.isDragging = true;
 
-      // Start audio synthesis on drag when shift is held
+      // Store drag start position for this blob (for distance calculation)
+      blob.dragStartX = blob.x;
+      blob.dragStartY = blob.y;
+
+      // NEW: Start per-band synthesis immediately on drag
+      if (audioEngine && isActive) {
+        // Start with 1x stretch (will be updated in handleMouseMove)
+        audioEngine.startBandSynthesis(blob.bandIndex, 1.0);
+        blob.isSynthesizing = true;
+        console.log(`Started synthesis for band ${blob.bandIndex}: ${blob.bandInfo.name}`);
+      }
+
+      // Legacy: Start global synthesis on drag when shift is held
       if (mouseRef.current.shiftHeld && audioEngine && isActive) {
         audioEngine.startGrainSynthesis();
       }
@@ -331,6 +343,22 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       const blob = mouseRef.current.draggedBlob;
       const isShiftHeld = e.shiftKey || mouseRef.current.shiftHeld;
 
+      // NEW: Update per-band synthesis based on drag distance
+      if (blob.isSynthesizing && audioEngine && isActive) {
+        // Calculate drag distance from blob's home position
+        const dx = blob.x - blob.dragStartX;
+        const dy = blob.y - blob.dragStartY;
+        const dragDistance = Math.sqrt(dx * dx + dy * dy);
+
+        // Map distance to time-stretch factor (0-200px → 1x-4x)
+        const maxDragDistance = 200;
+        const normalizedDistance = Math.min(dragDistance / maxDragDistance, 1.0);
+        const timeStretchFactor = 1.0 + (normalizedDistance * 3.0); // 1x to 4x
+
+        // Update the stretch factor in real-time
+        audioEngine.updateBandStretch(blob.bandIndex, timeStretchFactor);
+      }
+
       if (isShiftHeld) {
         // Shift held: keep blob at original position, manipulate audio
         if (mouseRef.current.dragStartPos) {
@@ -338,7 +366,7 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
           blob.y = mouseRef.current.dragStartPos.y;
         }
 
-        // Calculate drag distance from start for audio parameters
+        // Calculate drag distance from start for audio parameters (legacy global synth)
         const dx = x - mouseRef.current.dragStartPos.x;
         const dy = y - mouseRef.current.dragStartPos.y;
 
@@ -391,9 +419,17 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
 
     // Stop analysis blob dragging
     if (mouseRef.current.draggedBlob) {
-      mouseRef.current.draggedBlob.isDragging = false;
+      const blob = mouseRef.current.draggedBlob;
+      blob.isDragging = false;
 
-      // Stop audio synthesis if it was started
+      // NEW: Stop per-band synthesis
+      if (blob.isSynthesizing && audioEngine && isActive) {
+        audioEngine.stopBandSynthesis(blob.bandIndex);
+        blob.isSynthesizing = false;
+        console.log(`Stopped synthesis for band ${blob.bandIndex}: ${blob.bandInfo.name}`);
+      }
+
+      // Legacy: Stop global audio synthesis if it was started
       if (audioEngine && isActive) {
         audioEngine.stopGrainSynthesis();
       }
