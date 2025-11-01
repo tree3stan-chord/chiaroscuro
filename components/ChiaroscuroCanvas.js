@@ -193,7 +193,7 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   const renderBlob = (ctx, blob) => {
     ctx.save();
 
-    // Apply spatial offset for energy-reactive position (NEW)
+    // Apply spatial offset for energy-reactive position
     const renderX = blob.x + (blob.spatialOffsetX || 0);
     const renderY = blob.y + (blob.spatialOffsetY || 0);
 
@@ -204,9 +204,15 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
 
     // Get dynamic visual properties
     const hue = blob.hue || 0;
-    const brightness = blob.brightness || 60;
-    const saturation = blob.saturation || 80;
+    let brightness = blob.brightness || 60;
+    let saturation = blob.saturation || 80;
     const energyOpacity = Math.max(0.5, blob.energy);
+
+    // PHASE 4: Visual boost when synthesizing
+    if (blob.isSynthesizing) {
+      brightness = Math.min(95, brightness + 20); // Brighter
+      saturation = Math.min(100, saturation + 15); // More saturated
+    }
 
     // Outer glow (more dramatic, extends beyond blob)
     const outerGlow = ctx.createRadialGradient(
@@ -248,6 +254,26 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     ctx.beginPath();
     ctx.arc(0, 0, blob.radius * 0.4, 0, Math.PI * 2);
     ctx.fill();
+
+    // PHASE 4: Pulsing ring indicator when synthesizing
+    if (blob.isSynthesizing) {
+      const pulsePhase = Date.now() * 0.003; // Pulse speed
+      const pulseOpacity = 0.3 + Math.sin(pulsePhase) * 0.2; // 0.1 - 0.5
+      const ringRadius = blob.radius * 1.8;
+
+      ctx.strokeStyle = `hsla(${hue}, 100%, 90%, ${pulseOpacity})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Inner ring for double effect
+      ctx.strokeStyle = `hsla(${hue}, 100%, 70%, ${pulseOpacity * 0.6})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, ringRadius + 8, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
     ctx.restore();
   };
@@ -350,13 +376,22 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
         const dy = blob.y - blob.dragStartY;
         const dragDistance = Math.sqrt(dx * dx + dy * dy);
 
-        // Map distance to time-stretch factor (0-200px → 1x-4x)
-        const maxDragDistance = 200;
+        // PHASE 4: Exponential stretch curve for better feel
+        // Short drags (0-100px) → gentle stretch (1x-2x) - more control
+        // Medium drags (100-200px) → noticeable stretch (2x-4x)
+        // Long drags (200px+) → extreme stretch (4x-8x)
+        const maxDragDistance = 250; // Increased from 200
         const normalizedDistance = Math.min(dragDistance / maxDragDistance, 1.0);
-        const timeStretchFactor = 1.0 + (normalizedDistance * 3.0); // 1x to 4x
+
+        // Exponential curve: stretch = 1 + 7 * (normalized^2)
+        // This gives: 0px→1x, 125px→2x, 177px→4x, 250px→8x
+        const timeStretchFactor = 1.0 + 7.0 * Math.pow(normalizedDistance, 2);
 
         // Update the stretch factor in real-time
         audioEngine.updateBandStretch(blob.bandIndex, timeStretchFactor);
+
+        // Store for visual display (optional future feature)
+        blob.currentStretch = timeStretchFactor;
       }
 
       if (isShiftHeld) {
