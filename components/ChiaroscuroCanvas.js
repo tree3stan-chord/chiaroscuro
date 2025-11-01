@@ -193,42 +193,60 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   const renderBlob = (ctx, blob) => {
     ctx.save();
 
+    // Apply spatial offset for energy-reactive position (NEW)
+    const renderX = blob.x + (blob.spatialOffsetX || 0);
+    const renderY = blob.y + (blob.spatialOffsetY || 0);
+
     // Apply transformation for organic shape
-    ctx.translate(blob.x, blob.y);
+    ctx.translate(renderX, renderY);
     ctx.rotate(blob.rotation || 0);
     ctx.scale(blob.scaleX || 1, blob.scaleY || 1);
 
-    // Create radial gradient for glow effect (centered at origin after transform)
+    // Get dynamic visual properties
+    const hue = blob.hue || 0;
+    const brightness = blob.brightness || 60;
+    const saturation = blob.saturation || 80;
+    const energyOpacity = Math.max(0.5, blob.energy);
+
+    // Outer glow (more dramatic, extends beyond blob)
+    const outerGlow = ctx.createRadialGradient(
+      0, 0, 0,
+      0, 0, blob.radius * 1.5
+    );
+    outerGlow.addColorStop(0, `hsla(${hue}, ${saturation}%, ${brightness}%, ${energyOpacity * 0.6})`);
+    outerGlow.addColorStop(0.6, `hsla(${hue}, ${saturation - 10}%, ${brightness - 10}%, ${energyOpacity * 0.3})`);
+    outerGlow.addColorStop(1, `hsla(${hue}, ${saturation - 20}%, ${brightness - 20}%, 0)`);
+
+    ctx.fillStyle = outerGlow;
+    ctx.beginPath();
+    ctx.arc(0, 0, blob.radius * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Main body gradient
     const gradient = ctx.createRadialGradient(
       0, 0, 0,
       0, 0, blob.radius
     );
-
-    // Color based on frequency (hue rotation)
-    const hue = blob.hue || 0;
-
-    // Vary opacity based on energy for more life
-    const energyOpacity = Math.max(0.5, blob.energy);
-    gradient.addColorStop(0, `hsla(${hue}, 80%, 60%, ${energyOpacity * 0.9})`);
-    gradient.addColorStop(0.5, `hsla(${hue}, 70%, 50%, ${energyOpacity * 0.6})`);
-    gradient.addColorStop(1, `hsla(${hue}, 60%, 40%, 0)`);
+    gradient.addColorStop(0, `hsla(${hue}, ${saturation}%, ${brightness + 10}%, ${energyOpacity * 0.9})`);
+    gradient.addColorStop(0.5, `hsla(${hue}, ${saturation - 10}%, ${brightness}%, ${energyOpacity * 0.7})`);
+    gradient.addColorStop(1, `hsla(${hue}, ${saturation - 20}%, ${brightness - 10}%, 0)`);
 
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.arc(0, 0, blob.radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Add inner glow
+    // Bright inner core
     const innerGradient = ctx.createRadialGradient(
       0, 0, 0,
-      0, 0, blob.radius * 0.5
+      0, 0, blob.radius * 0.4
     );
-    innerGradient.addColorStop(0, `hsla(${hue}, 90%, 80%, ${energyOpacity * 0.4})`);
-    innerGradient.addColorStop(1, `hsla(${hue}, 80%, 60%, 0)`);
+    innerGradient.addColorStop(0, `hsla(${hue}, ${saturation + 10}%, ${Math.min(95, brightness + 30)}%, ${energyOpacity * 0.8})`);
+    innerGradient.addColorStop(1, `hsla(${hue}, ${saturation}%, ${brightness + 20}%, 0)`);
 
     ctx.fillStyle = innerGradient;
     ctx.beginPath();
-    ctx.arc(0, 0, blob.radius * 0.5, 0, Math.PI * 2);
+    ctx.arc(0, 0, blob.radius * 0.4, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
