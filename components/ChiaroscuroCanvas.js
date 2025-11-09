@@ -119,8 +119,10 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       // Number keys for presets
       if (e.key >= '1' && e.key <= '9') {
         const preset = parseInt(e.key);
-        // TODO: Apply preset
-        console.log(`Preset ${preset} selected`);
+        if (audioEngine) {
+          audioEngine.applyPreset(preset);
+          console.log(`Applied preset ${preset}`);
+        }
       }
 
       // SuperSynth: play note on key press
@@ -169,10 +171,18 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       ctx.fillStyle = '#0a0a0a';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Get band energies from audio engine
+      // Get band energies from audio engine - use PROCESSED output for feedback loop!
       let bandEnergies;
       if (isActive && audioEngine) {
-        bandEnergies = audioEngine.getBandEnergies();
+        bandEnergies = audioEngine.getProcessedBandEnergies();
+
+        // Also update audio processor based on fluid field if in fluid mode
+        if (visualMode === 'fluid' && fluidFieldRef.current) {
+          const centerX = canvas.width / 2;
+          const centerY = canvas.height / 2;
+          const fieldValue = fluidFieldRef.current.getFieldValueAt(centerX, centerY);
+          audioEngine.updateProcessorFromFieldValue(fieldValue, centerX, centerY);
+        }
       } else {
         // Idle state: use zero energies
         bandEnergies = new Array(24).fill(0);
@@ -452,28 +462,28 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
         // Normal drag: frequency painting - smear the field
         fluidFieldRef.current.applyForce(x, y, dx * 0.5, dy * 0.5);
         fluidFieldRef.current.addRipple(x, y, 0.3);
-      } else if (e.shiftKey && !e.altKey) {
-        // Shift+drag: time stretching
-        if (mouseRef.current.dragStartPos) {
-          const dragDx = x - mouseRef.current.dragStartPos.x;
-          const dragDy = y - mouseRef.current.dragStartPos.y;
-          const stretchFactor = 1 + Math.abs(dragDx) * 0.01; // Horizontal = stretch
-          const grainSize = Math.max(0.05, 0.15 + dragDy * 0.001); // Vertical = grain size
-          // TODO: Apply to paulstretch engine
-          console.log(`Stretch: ${stretchFactor.toFixed(2)}x, Grain: ${grainSize.toFixed(3)}`);
+      }
+
+      // Send all drag interactions to the audio processor for sonic manipulation!
+      if (audioEngine) {
+        const modifiers = {
+          shift: e.shiftKey,
+          alt: e.altKey,
+          ctrl: e.ctrlKey
+        };
+        audioEngine.updateProcessorFromDrag(x, y, dx, dy, modifiers);
+
+        // Log the audio parameters being changed
+        const vizData = audioEngine.getProcessorVisualizationData();
+        if (vizData && vizData.params) {
+          if (e.shiftKey && !e.altKey) {
+            console.log(`Stretch: ${vizData.params.stretchFactor.toFixed(2)}x, Grain: ${vizData.params.grainSize.toFixed(3)}`);
+          } else if (e.altKey && !e.shiftKey) {
+            console.log(`Harmonics: ${vizData.params.harmonicGeneration.toFixed(2)}`);
+          } else if (e.ctrlKey) {
+            console.log(`Filter: ${vizData.params.filterCutoff.toFixed(0)}Hz`);
+          }
         }
-      } else if (e.altKey && !e.shiftKey) {
-        // Alt+drag: harmonic generation
-        // TODO: Create overtones
-        console.log('Harmonic generation at', x, y);
-      } else if (e.ctrlKey) {
-        // Ctrl+drag: spectral filtering - carve out frequencies
-        // TODO: Apply filtering
-        console.log('Spectral filter at', x, y);
-      } else if (e.shiftKey && e.altKey) {
-        // Shift+Alt+drag: phase vocoding
-        // TODO: Separate phase from amplitude
-        console.log('Phase vocoding');
       }
       return;
     }
