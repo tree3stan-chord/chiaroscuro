@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import BlobPhysics from '../lib/BlobPhysics';
 import TonalBlob from '../lib/TonalBlob';
-import KeyboardSynth from '../lib/KeyboardSynth';
+import SuperSynth from '../lib/SuperSynth';
 import SynthBlob from '../lib/SynthBlob';
 
 const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
@@ -12,7 +12,7 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   const blobPhysicsRef = useRef(null);
   const tonalBlobsRef = useRef([]); // Track click-spawned tonal blobs
   const currentBandEnergiesRef = useRef(null); // Store current band energies
-  const keyboardSynthRef = useRef(null); // Keyboard synth instance
+  const superSynthRef = useRef(null); // SuperSynth instance
   const synthBlobsRef = useRef([]); // Track synth-generated blobs
   const mouseRef = useRef({ x: 0, y: 0, isDown: false, draggedBlob: null, draggedSynthBlob: null, draggedTonalBlob: null, shiftHeld: false, dragStartPos: null });
   const [layout, setLayout] = useState('arc'); // 'arc', 'bar', or 'organic'
@@ -31,12 +31,12 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    // Initialize keyboard synth
-    if (!keyboardSynthRef.current && audioEngine) {
-      keyboardSynthRef.current = new KeyboardSynth(audioEngine);
+    // Initialize SuperSynth
+    if (!superSynthRef.current && audioEngine) {
+      superSynthRef.current = new SuperSynth(audioEngine);
 
       // Callback when note starts: create synth blob
-      keyboardSynthRef.current.onNoteStart = (noteInfo, key) => {
+      superSynthRef.current.onNoteStart = (noteInfo, key) => {
         const centerX = canvas.width / 2;
         const centerY = canvas.height / 2;
 
@@ -56,7 +56,7 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       };
 
       // Callback when note ends: fade out synth blob
-      keyboardSynthRef.current.onNoteEnd = (blobId, key, noteInfo) => {
+      superSynthRef.current.onNoteEnd = (blobId, key, noteInfo) => {
         const blob = synthBlobsRef.current.find(b => b.id === blobId);
         if (blob) {
           blob.fadeOut();
@@ -87,10 +87,10 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
         return;
       }
 
-      // Keyboard synth: play note on key press
-      if (keyboardSynthRef.current && !e.repeat) {
+      // SuperSynth: play note on key press
+      if (superSynthRef.current && !e.repeat) {
         const key = e.key.toLowerCase();
-        keyboardSynthRef.current.startNote(key);
+        superSynthRef.current.startNote(key);
       }
     };
 
@@ -102,10 +102,10 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
         mouseRef.current.shiftHeld = false;
       }
 
-      // Keyboard synth: stop note on key release
-      if (keyboardSynthRef.current) {
+      // SuperSynth: stop note on key release
+      if (superSynthRef.current) {
         const key = e.key.toLowerCase();
-        keyboardSynthRef.current.stopNote(key);
+        superSynthRef.current.stopNote(key);
       }
     };
 
@@ -160,9 +160,9 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
         blob.update(canvas.width, canvas.height);
 
         // Update synth modulation if blob is being dragged
-        if (blob.isDragging && keyboardSynthRef.current) {
+        if (blob.isDragging && superSynthRef.current) {
           const modulationParams = blob.getModulationParams();
-          keyboardSynthRef.current.modulateNote(blob.key, modulationParams);
+          superSynthRef.current.modulateNote(blob.key, modulationParams);
         }
       });
 
@@ -184,8 +184,8 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
-      if (keyboardSynthRef.current) {
-        keyboardSynthRef.current.cleanup();
+      if (superSynthRef.current) {
+        superSynthRef.current.cleanup();
       }
     };
   }, [isActive, audioLevel, audioEngine, layout]);
