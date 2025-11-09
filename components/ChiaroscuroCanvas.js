@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import BlobPhysics from '../lib/BlobPhysics';
+import FluidField from '../lib/FluidField';
 import TonalBlob from '../lib/TonalBlob';
 import SuperSynth from '../lib/SuperSynth';
 import SynthBlob from '../lib/SynthBlob';
@@ -10,12 +11,14 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
   const blobPhysicsRef = useRef(null);
+  const fluidFieldRef = useRef(null); // Fluid field visualization
   const tonalBlobsRef = useRef([]); // Track click-spawned tonal blobs
   const currentBandEnergiesRef = useRef(null); // Store current band energies
   const superSynthRef = useRef(null); // SuperSynth instance
   const synthBlobsRef = useRef([]); // Track synth-generated blobs
-  const mouseRef = useRef({ x: 0, y: 0, isDown: false, draggedBlob: null, draggedSynthBlob: null, draggedTonalBlob: null, shiftHeld: false, dragStartPos: null });
+  const mouseRef = useRef({ x: 0, y: 0, isDown: false, draggedBlob: null, draggedSynthBlob: null, draggedTonalBlob: null, shiftHeld: false, altHeld: false, ctrlHeld: false, dragStartPos: null });
   const [layout, setLayout] = useState('arc'); // 'arc', 'bar', or 'organic'
+  const [visualMode, setVisualMode] = useState('fluid'); // fluid, blobs
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -64,16 +67,36 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       };
     }
 
-    // Track shift key and handle keyboard shortcuts
+    // Track modifier keys and handle keyboard shortcuts
     const handleKeyDown = (e) => {
       // Don't process if typing in an input field
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-      if (e.key === 'Shift') {
-        mouseRef.current.shiftHeld = true;
+      // Track modifier keys
+      if (e.key === 'Shift') mouseRef.current.shiftHeld = true;
+      if (e.key === 'Alt') mouseRef.current.altHeld = true;
+      if (e.key === 'Control') mouseRef.current.ctrlHeld = true;
+
+      // Tab: Cycle visual modes
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        if (fluidFieldRef.current) {
+          const modes = ['liquid', 'crystal', 'particle', 'neural', 'fractal'];
+          const currentMode = fluidFieldRef.current.visualMode;
+          const nextIndex = (modes.indexOf(currentMode) + 1) % modes.length;
+          fluidFieldRef.current.setVisualMode(modes[nextIndex]);
+          console.log(`Visual mode: ${currentMode} → ${modes[nextIndex]}`);
+        }
+        return;
       }
 
-      // Ctrl+L: Toggle layout
+      // V: Toggle between fluid and blob visualization
+      if (e.key === 'v' || e.key === 'V') {
+        setVisualMode(prev => prev === 'fluid' ? 'blobs' : 'fluid');
+        return;
+      }
+
+      // Ctrl+L: Toggle layout (for blob mode)
       if (e.ctrlKey && e.key === 'l') {
         e.preventDefault();
         setLayout(prev => {
@@ -87,6 +110,19 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
         return;
       }
 
+      // Space (hold): Freeze mode
+      if (e.key === ' ') {
+        e.preventDefault();
+        // TODO: Implement freeze mode
+      }
+
+      // Number keys for presets
+      if (e.key >= '1' && e.key <= '9') {
+        const preset = parseInt(e.key);
+        // TODO: Apply preset
+        console.log(`Preset ${preset} selected`);
+      }
+
       // SuperSynth: play note on key press
       if (superSynthRef.current && !e.repeat) {
         const key = e.key.toLowerCase();
@@ -98,9 +134,10 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       // Don't process if typing in an input field
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-      if (e.key === 'Shift') {
-        mouseRef.current.shiftHeld = false;
-      }
+      // Track modifier key releases
+      if (e.key === 'Shift') mouseRef.current.shiftHeld = false;
+      if (e.key === 'Alt') mouseRef.current.altHeld = false;
+      if (e.key === 'Control') mouseRef.current.ctrlHeld = false;
 
       // SuperSynth: stop note on key release
       if (superSynthRef.current) {
@@ -112,12 +149,16 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
 
-    // Initialize blob physics
+    // Initialize visualization systems
     if (!blobPhysicsRef.current) {
       blobPhysicsRef.current = new BlobPhysics(canvas.width, canvas.height, layout);
     }
 
-    // Update layout when it changes
+    if (!fluidFieldRef.current) {
+      fluidFieldRef.current = new FluidField(canvas.width, canvas.height);
+    }
+
+    // Update layout when it changes (for blob mode)
     if (blobPhysicsRef.current && blobPhysicsRef.current.layout !== layout) {
       blobPhysicsRef.current.setLayout(layout);
     }
@@ -128,23 +169,26 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
       ctx.fillStyle = '#0a0a0a';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      if (blobPhysicsRef.current) {
-        // Get band energies from audio engine
-        let bandEnergies;
-        if (isActive && audioEngine) {
-          bandEnergies = audioEngine.getBandEnergies();
-        } else {
-          // Idle state: use zero energies
-          bandEnergies = new Array(24).fill(0);
-        }
+      // Get band energies from audio engine
+      let bandEnergies;
+      if (isActive && audioEngine) {
+        bandEnergies = audioEngine.getBandEnergies();
+      } else {
+        // Idle state: use zero energies
+        bandEnergies = new Array(24).fill(0);
+      }
 
-        // Store current band energies for explosion color
-        currentBandEnergiesRef.current = bandEnergies;
+      // Store current band energies
+      currentBandEnergiesRef.current = bandEnergies;
 
-        // Update blob physics
+      // Render based on visual mode
+      if (visualMode === 'fluid' && fluidFieldRef.current) {
+        // Update and render fluid field
+        fluidFieldRef.current.update(bandEnergies);
+        fluidFieldRef.current.render(ctx);
+      } else if (visualMode === 'blobs' && blobPhysicsRef.current) {
+        // Update and render blob physics
         blobPhysicsRef.current.update(bandEnergies);
-
-        // Render blobs
         blobPhysicsRef.current.blobs.forEach(blob => {
           renderBlob(ctx, blob);
         });
@@ -188,7 +232,7 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
         superSynthRef.current.cleanup();
       }
     };
-  }, [isActive, audioLevel, audioEngine, layout]);
+  }, [isActive, audioLevel, audioEngine, layout, visualMode]);
 
   const renderBlob = (ctx, blob) => {
     ctx.save();
@@ -280,8 +324,6 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
 
   // Mouse event handlers
   const handleMouseDown = (e) => {
-    if (!blobPhysicsRef.current) return;
-
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -290,6 +332,37 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
     mouseRef.current.y = y;
     mouseRef.current.isDown = true;
     mouseRef.current.shiftHeld = e.shiftKey;
+    mouseRef.current.altHeld = e.altKey;
+    mouseRef.current.ctrlHeld = e.ctrlKey;
+
+    // Fluid field interactions
+    if (visualMode === 'fluid' && fluidFieldRef.current) {
+      if (e.button === 0) { // Left click
+        if (!e.shiftKey && !e.altKey && !e.ctrlKey) {
+          // Normal click: spawn sonic well
+          fluidFieldRef.current.addWell(x, y, 1);
+          fluidFieldRef.current.addRipple(x, y, 0.8);
+        } else if (e.shiftKey && !e.altKey) {
+          // Shift+click: start time stretching
+          mouseRef.current.dragStartPos = { x, y };
+        } else if (e.altKey && !e.shiftKey) {
+          // Alt+click: harmonic generation
+          // Will be handled in drag
+        } else if (e.ctrlKey) {
+          // Ctrl+click: spectral filtering
+          // Will be handled in drag
+        }
+      } else if (e.button === 2) { // Right click
+        e.preventDefault();
+        // Temporal anchor
+        // TODO: Implement temporal anchor
+        console.log('Temporal anchor at', x, y);
+      }
+      return;
+    }
+
+    // Original blob mode interactions
+    if (!blobPhysicsRef.current) return;
 
     // Check if clicking on a synth blob first (they render on top)
     let clickedSynthBlob = null;
@@ -360,8 +433,6 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   };
 
   const handleMouseMove = (e) => {
-    if (!blobPhysicsRef.current) return;
-
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -371,6 +442,43 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
 
     mouseRef.current.x = x;
     mouseRef.current.y = y;
+
+    // Fluid field drag interactions
+    if (visualMode === 'fluid' && fluidFieldRef.current && mouseRef.current.isDown) {
+      const dx = x - prevX;
+      const dy = y - prevY;
+
+      if (!e.shiftKey && !e.altKey && !e.ctrlKey) {
+        // Normal drag: frequency painting - smear the field
+        fluidFieldRef.current.applyForce(x, y, dx * 0.5, dy * 0.5);
+        fluidFieldRef.current.addRipple(x, y, 0.3);
+      } else if (e.shiftKey && !e.altKey) {
+        // Shift+drag: time stretching
+        if (mouseRef.current.dragStartPos) {
+          const dragDx = x - mouseRef.current.dragStartPos.x;
+          const dragDy = y - mouseRef.current.dragStartPos.y;
+          const stretchFactor = 1 + Math.abs(dragDx) * 0.01; // Horizontal = stretch
+          const grainSize = Math.max(0.05, 0.15 + dragDy * 0.001); // Vertical = grain size
+          // TODO: Apply to paulstretch engine
+          console.log(`Stretch: ${stretchFactor.toFixed(2)}x, Grain: ${grainSize.toFixed(3)}`);
+        }
+      } else if (e.altKey && !e.shiftKey) {
+        // Alt+drag: harmonic generation
+        // TODO: Create overtones
+        console.log('Harmonic generation at', x, y);
+      } else if (e.ctrlKey) {
+        // Ctrl+drag: spectral filtering - carve out frequencies
+        // TODO: Apply filtering
+        console.log('Spectral filter at', x, y);
+      } else if (e.shiftKey && e.altKey) {
+        // Shift+Alt+drag: phase vocoding
+        // TODO: Separate phase from amplitude
+        console.log('Phase vocoding');
+      }
+      return;
+    }
+
+    if (!blobPhysicsRef.current) return;
 
     // Handle synth blob dragging
     if (mouseRef.current.isDown && mouseRef.current.draggedSynthBlob) {
