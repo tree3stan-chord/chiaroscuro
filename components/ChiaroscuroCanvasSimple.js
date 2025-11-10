@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import KaleidoscopeVisualizer from '../lib/KaleidoscopeVisualizer';
+import GenerativeAudioVisualizer from '../lib/GenerativeAudioVisualizer';
 import SimplePaulstretch from '../lib/SimplePaulstretch';
 
 const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
@@ -30,7 +30,7 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
 
     // Initialize visualizer
     if (!visualizerRef.current) {
-      visualizerRef.current = new KaleidoscopeVisualizer(canvas.width, canvas.height);
+      visualizerRef.current = new GenerativeAudioVisualizer(canvas.width, canvas.height);
     }
 
     // Initialize paulstretch
@@ -211,11 +211,11 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
         pointerEvents: 'none',
         textShadow: '0 0 5px rgba(0, 0, 0, 0.8)'
       }}>
-        <div>Click + Drag: Control kaleidoscope & stretch</div>
-        <div>Shift + Click: Energy burst at frequency</div>
+        <div>Sound generates visuals organically - sing, speak, play!</div>
+        <div>Click + Drag: Paint energy & control stretch</div>
+        <div>Shift + Click: Explosion burst</div>
         <div>Space: Toggle paulstretch</div>
         <div>1-9: Set stretch factor</div>
-        <div>G: Toggle grain size</div>
       </div>
     </div>
   );
