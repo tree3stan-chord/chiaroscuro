@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import ChiaroscuroVisualizer from '../lib/ChiaroscuroVisualizer';
+import KaleidoscopeVisualizer from '../lib/KaleidoscopeVisualizer';
 import SimplePaulstretch from '../lib/SimplePaulstretch';
 
 const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
@@ -9,7 +9,7 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
   const animationRef = useRef(null);
   const visualizerRef = useRef(null);
   const paulstretchRef = useRef(null);
-  const mouseRef = useRef({ isDown: false });
+  const mouseRef = useRef({ isDown: false, lastX: 0, lastY: 0 });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -30,7 +30,7 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
 
     // Initialize visualizer
     if (!visualizerRef.current) {
-      visualizerRef.current = new ChiaroscuroVisualizer(canvas.width, canvas.height);
+      visualizerRef.current = new KaleidoscopeVisualizer(canvas.width, canvas.height);
     }
 
     // Initialize paulstretch
@@ -137,15 +137,12 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
     const y = e.clientY - rect.top;
 
     mouseRef.current.isDown = true;
+    mouseRef.current.lastX = x;
+    mouseRef.current.lastY = y;
 
-    if (visualizerRef.current) {
-      if (e.shiftKey) {
-        // Shift+click spawns light
-        visualizerRef.current.handleClick(x, y);
-      } else {
-        // Normal drag creates mouse light
-        visualizerRef.current.startDrag(x, y);
-      }
+    if (visualizerRef.current && e.shiftKey) {
+      // Shift+click creates energy burst at frequency band
+      visualizerRef.current.handleClick(x, y);
     }
 
     // Start paulstretch on interaction
@@ -161,7 +158,15 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    visualizerRef.current.updateDrag(x, y);
+    // Calculate delta for kaleidoscope drag
+    const dx = x - mouseRef.current.lastX;
+    const dy = y - mouseRef.current.lastY;
+
+    visualizerRef.current.handleDrag(x, y, dx, dy);
+
+    // Update last position
+    mouseRef.current.lastX = x;
+    mouseRef.current.lastY = y;
 
     // Adjust paulstretch parameters based on position
     if (paulstretchRef.current) {
@@ -175,10 +180,6 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
 
   const handleMouseUp = () => {
     mouseRef.current.isDown = false;
-
-    if (visualizerRef.current) {
-      visualizerRef.current.endDrag();
-    }
   };
 
   return (
@@ -210,8 +211,8 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
         pointerEvents: 'none',
         textShadow: '0 0 5px rgba(0, 0, 0, 0.8)'
       }}>
-        <div>Click + Drag: Create light & control stretch</div>
-        <div>Shift + Click: Spawn new light source</div>
+        <div>Click + Drag: Control kaleidoscope & stretch</div>
+        <div>Shift + Click: Energy burst at frequency</div>
         <div>Space: Toggle paulstretch</div>
         <div>1-9: Set stretch factor</div>
         <div>G: Toggle grain size</div>
