@@ -48,10 +48,9 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       }
     }
 
-    // Initialize synth
-    if (!synthRef.current && audioEngine && audioEngine.audioContext) {
-      synthRef.current = new SuperSynth(audioEngine.audioContext);
-      synthRef.current.connect(audioEngine.masterGainNode);
+    // Initialize synth (SuperSynth auto-connects to audioEngine.masterGainNode)
+    if (!synthRef.current && audioEngine) {
+      synthRef.current = new SuperSynth(audioEngine);
     }
 
     // Keyboard to note mapping (chromatic scale starting from C3)
