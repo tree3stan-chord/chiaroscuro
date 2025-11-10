@@ -3,13 +3,17 @@
 import { useEffect, useRef } from 'react';
 import GenerativeAudioVisualizer from '../lib/GenerativeAudioVisualizer';
 import SimplePaulstretch from '../lib/SimplePaulstretch';
+import SuperSynth from '../lib/SuperSynth';
 
 const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
   const visualizerRef = useRef(null);
   const paulstretchRef = useRef(null);
+  const synthRef = useRef(null);
   const mouseRef = useRef({ isDown: false, lastX: 0, lastY: 0 });
+  const modifiersRef = useRef({ shift: false, alt: false, ctrl: false });
+  const activeNotesRef = useRef(new Set());
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -44,38 +48,111 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       }
     }
 
+    // Initialize synth
+    if (!synthRef.current && audioEngine && audioEngine.audioContext) {
+      synthRef.current = new SuperSynth(audioEngine.audioContext);
+      synthRef.current.connect(audioEngine.masterGainNode);
+    }
+
+    // Keyboard to note mapping (chromatic scale starting from C3)
+    const keyToNote = {
+      'a': 'C3', 'w': 'C#3', 's': 'D3', 'e': 'D#3', 'd': 'E3',
+      'f': 'F3', 't': 'F#3', 'g': 'G3', 'y': 'G#3', 'h': 'A3',
+      'u': 'A#3', 'j': 'B3', 'k': 'C4', 'o': 'C#4', 'l': 'D4',
+      'p': 'D#4', ';': 'E4'
+    };
+
+    // Note to frequency mapping
+    const noteToFreq = (note) => {
+      const notes = { 'C': 0, 'C#': 1, 'D': 2, 'D#': 3, 'E': 4, 'F': 5,
+                     'F#': 6, 'G': 7, 'G#': 8, 'A': 9, 'A#': 10, 'B': 11 };
+      const match = note.match(/^([A-G]#?)(\d+)$/);
+      if (!match) return 0;
+      const [, noteName, octave] = match;
+      const noteIndex = notes[noteName];
+      const octaveNum = parseInt(octave);
+      return 440 * Math.pow(2, (octaveNum - 4) + (noteIndex - 9) / 12);
+    };
+
     // Keyboard shortcuts
     const handleKeyDown = (e) => {
-      if (!paulstretchRef.current) return;
-
       // Number keys control stretch factor
-      if (e.key >= '1' && e.key <= '9') {
+      if (e.key >= '1' && e.key <= '9' && paulstretchRef.current) {
         const stretch = parseInt(e.key);
         paulstretchRef.current.setStretchFactor(stretch);
         console.log(`Stretch factor: ${stretch}x`);
+        return;
       }
 
       // Space toggles paulstretch
       if (e.key === ' ') {
         e.preventDefault();
-        if (paulstretchRef.current.isPlaying) {
-          paulstretchRef.current.stop();
-          console.log('Paulstretch stopped');
-        } else {
-          paulstretchRef.current.start();
-          console.log('Paulstretch started');
+        if (paulstretchRef.current) {
+          if (paulstretchRef.current.isPlaying) {
+            paulstretchRef.current.stop();
+            console.log('Paulstretch stopped');
+          } else {
+            paulstretchRef.current.start();
+            console.log('Paulstretch started');
+          }
         }
+        return;
       }
 
       // G adjusts grain size
-      if (e.key === 'g' || e.key === 'G') {
+      if ((e.key === 'g' || e.key === 'G') && paulstretchRef.current) {
         const size = e.shiftKey ? 0.05 : 0.2;
         paulstretchRef.current.setGrainSize(size);
         console.log(`Grain size: ${size}s`);
+        return;
+      }
+
+      // Musical keyboard
+      const note = keyToNote[e.key.toLowerCase()];
+      if (note && synthRef.current && !activeNotesRef.current.has(e.key)) {
+        const freq = noteToFreq(note);
+        synthRef.current.noteOn(freq);
+        activeNotesRef.current.add(e.key);
+
+        // Create visual burst for synth note
+        if (visualizerRef.current) {
+          // Map frequency to position around circle
+          const normalizedFreq = (Math.log2(freq / 261.63)) / 3; // C4 = 261.63 Hz, 3 octaves range
+          const angle = normalizedFreq * Math.PI * 2;
+          const radius = Math.min(canvas.width, canvas.height) * 0.3;
+          const x = canvas.width / 2 + Math.cos(angle) * radius;
+          const y = canvas.height / 2 + Math.sin(angle) * radius;
+
+          const hue = (normalizedFreq * 300) % 360;
+          visualizerRef.current.handleMouseDown(x, y, {});
+        }
+
+        console.log(`Note: ${note} (${freq.toFixed(1)} Hz)`);
       }
     };
 
+    // Track modifier keys and release synth notes
+    const handleKeyUp = (e) => {
+      if (e.key === 'Shift') modifiersRef.current.shift = false;
+      if (e.key === 'Alt') modifiersRef.current.alt = false;
+      if (e.key === 'Control') modifiersRef.current.ctrl = false;
+
+      // Release synth note
+      const note = keyToNote[e.key.toLowerCase()];
+      if (note && synthRef.current && activeNotesRef.current.has(e.key)) {
+        synthRef.current.noteOff();
+        activeNotesRef.current.delete(e.key);
+      }
+    };
+
+    const updateModifiers = (e) => {
+      modifiersRef.current.shift = e.shiftKey;
+      modifiersRef.current.alt = e.altKey;
+      modifiersRef.current.ctrl = e.ctrlKey;
+    };
+
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
 
     // Animation loop
     const animate = () => {
@@ -97,16 +174,50 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       if (visualizerRef.current) {
         visualizerRef.current.update(bandEnergies);
         visualizerRef.current.render(ctx);
-      }
 
-      // Update stretch based on overall energy
-      if (paulstretchRef.current && isActive) {
-        const avgEnergy = bandEnergies.reduce((a, b) => a + b, 0) / bandEnergies.length;
+        // Get audio feedback from visual state
+        if (paulstretchRef.current && isActive) {
+          const feedback = visualizerRef.current.getAudioFeedback();
 
-        // Auto-adjust stretch when dragging
-        if (mouseRef.current.isDown) {
-          const autoStretch = 1 + avgEnergy * 5;
-          paulstretchRef.current.setStretchFactor(autoStretch);
+          // Map interaction to stretch parameters
+          if (mouseRef.current.isDown) {
+            // X position controls stretch factor
+            const stretch = 1 + feedback.interactionX * 15; // 1x to 16x
+
+            // Y position controls grain size
+            const grainSize = 0.02 + feedback.interactionY * 0.4; // 20ms to 420ms
+
+            // Interaction mode affects volume
+            let volume = 0.3 + feedback.interactionEnergy * 0.5;
+
+            if (feedback.interactionMode === 'pull') {
+              // Pull mode: higher stretch, smaller grains
+              paulstretchRef.current.setStretchFactor(stretch * 1.5);
+              paulstretchRef.current.setGrainSize(grainSize * 0.5);
+              volume *= 0.8; // Softer
+            } else if (feedback.interactionMode === 'push') {
+              // Push mode: moderate stretch, larger grains
+              paulstretchRef.current.setStretchFactor(stretch * 0.8);
+              paulstretchRef.current.setGrainSize(grainSize * 1.5);
+              volume *= 1.2; // Louder
+            } else if (feedback.interactionMode === 'twist') {
+              // Twist mode: variable stretch based on flow disturbance
+              paulstretchRef.current.setStretchFactor(1 + feedback.flowDisturbance * 10);
+              paulstretchRef.current.setGrainSize(grainSize);
+              volume *= 1.1;
+            } else {
+              // Normal drag
+              paulstretchRef.current.setStretchFactor(stretch);
+              paulstretchRef.current.setGrainSize(grainSize);
+            }
+
+            paulstretchRef.current.setVolume(volume);
+          } else {
+            // Not dragging: use particle density for ambient effects
+            const ambientStretch = 1 + feedback.particleDensity * 3;
+            paulstretchRef.current.setStretchFactor(ambientStretch);
+            paulstretchRef.current.setVolume(0.3);
+          }
         }
       }
 
@@ -118,6 +229,7 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
     return () => {
       window.removeEventListener('resize', resizeCanvas);
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
 
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
@@ -126,6 +238,10 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       if (paulstretchRef.current) {
         paulstretchRef.current.stop();
         paulstretchRef.current.disconnect();
+      }
+
+      if (synthRef.current) {
+        synthRef.current.disconnect();
       }
     };
   }, [isActive, audioLevel, audioEngine]);
@@ -140,9 +256,15 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
     mouseRef.current.lastX = x;
     mouseRef.current.lastY = y;
 
-    if (visualizerRef.current && e.shiftKey) {
-      // Shift+click creates energy burst at frequency band
-      visualizerRef.current.handleClick(x, y);
+    // Update modifiers from event
+    modifiersRef.current = {
+      shift: e.shiftKey,
+      alt: e.altKey,
+      ctrl: e.ctrlKey || e.metaKey
+    };
+
+    if (visualizerRef.current) {
+      visualizerRef.current.handleMouseDown(x, y, modifiersRef.current);
     }
 
     // Start paulstretch on interaction
@@ -158,28 +280,32 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Calculate delta for kaleidoscope drag
+    // Calculate delta
     const dx = x - mouseRef.current.lastX;
     const dy = y - mouseRef.current.lastY;
 
-    visualizerRef.current.handleDrag(x, y, dx, dy);
+    // Update modifiers from event
+    modifiersRef.current = {
+      shift: e.shiftKey,
+      alt: e.altKey,
+      ctrl: e.ctrlKey || e.metaKey
+    };
+
+    visualizerRef.current.handleMouseMove(x, y, dx, dy, modifiersRef.current);
 
     // Update last position
     mouseRef.current.lastX = x;
     mouseRef.current.lastY = y;
 
-    // Adjust paulstretch parameters based on position
-    if (paulstretchRef.current) {
-      const stretch = 1 + (x / canvasRef.current.width) * 9; // 1x to 10x
-      const grainSize = 0.05 + (y / canvasRef.current.height) * 0.3; // 50ms to 350ms
-
-      paulstretchRef.current.setStretchFactor(stretch);
-      paulstretchRef.current.setGrainSize(grainSize);
-    }
+    // Note: Paulstretch parameters are now controlled by feedback loop in animate()
   };
 
   const handleMouseUp = () => {
     mouseRef.current.isDown = false;
+
+    if (visualizerRef.current) {
+      visualizerRef.current.handleMouseUp();
+    }
   };
 
   return (
@@ -207,15 +333,16 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
         left: 20,
         color: 'rgba(255, 255, 255, 0.3)',
         fontFamily: 'monospace',
-        fontSize: '12px',
+        fontSize: '11px',
         pointerEvents: 'none',
-        textShadow: '0 0 5px rgba(0, 0, 0, 0.8)'
+        textShadow: '0 0 5px rgba(0, 0, 0, 0.8)',
+        lineHeight: '1.5'
       }}>
-        <div>Sound generates visuals organically - sing, speak, play!</div>
-        <div>Click + Drag: Paint energy & control stretch</div>
-        <div>Shift + Click: Explosion burst</div>
-        <div>Space: Toggle paulstretch</div>
-        <div>1-9: Set stretch factor</div>
+        <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>Sound → Visuals → Sound (feedback loop)</div>
+        <div>Drag: Push vortex, paint energy, bend sound</div>
+        <div>Shift + Drag: Pull particles (ethereal) | Alt + Drag: Push (explosive) | Ctrl + Drag: Twist (chaotic)</div>
+        <div style={{ marginTop: '6px' }}>Keyboard Synth: AWSEDFTGYHUJKOLP; (piano layout)</div>
+        <div>Space: Toggle stretch | 1-9: Stretch amount | G: Grain size</div>
       </div>
     </div>
   );
