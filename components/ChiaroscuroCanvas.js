@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import BlobPhysics from '../lib/BlobPhysics';
-import FluidField from '../lib/FluidField';
-import TonalBlob from '../lib/TonalBlob';
+import ChiaroscuroVisualizer from '../lib/ChiaroscuroVisualizer';
+import SimplePaulstretch from '../lib/SimplePaulstretch';
 import SuperSynth from '../lib/SuperSynth';
 import SynthBlob from '../lib/SynthBlob';
 
