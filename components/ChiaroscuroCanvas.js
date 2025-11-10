@@ -18,7 +18,7 @@ const ChiaroscuroCanvas = ({ isActive, audioLevel, audioEngine }) => {
   const synthBlobsRef = useRef([]); // Track synth-generated blobs
   const mouseRef = useRef({ x: 0, y: 0, isDown: false, draggedBlob: null, draggedSynthBlob: null, draggedTonalBlob: null, shiftHeld: false, altHeld: false, ctrlHeld: false, dragStartPos: null });
   const [layout, setLayout] = useState('arc'); // 'arc', 'bar', or 'organic'
-  const [visualMode, setVisualMode] = useState('fluid'); // fluid, blobs
+  const [visualMode, setVisualMode] = useState('blobs'); // fluid, blobs - default to blobs since fluid needs debugging
 
   useEffect(() => {
     const canvas = canvasRef.current;
