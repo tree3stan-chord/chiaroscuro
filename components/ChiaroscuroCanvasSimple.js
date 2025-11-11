@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import GenerativeAudioVisualizer from '../lib/GenerativeAudioVisualizer';
 import SimplePaulstretch from '../lib/SimplePaulstretch';
 import SuperSynth from '../lib/SuperSynth';
+import DrawModeSynth from '../lib/DrawModeSynth';
 
 const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
   const canvasRef = useRef(null);
@@ -11,7 +12,8 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
   const visualizerRef = useRef(null);
   const paulstretchRef = useRef(null);
   const synthRef = useRef(null);
-  const mouseRef = useRef({ isDown: false, lastX: 0, lastY: 0 });
+  const drawSynthRef = useRef(null);
+  const mouseRef = useRef({ isDown: false, lastX: 0, lastY: 0, mode: 'none' });
   const modifiersRef = useRef({ shift: false, alt: false, ctrl: false });
   const activeNotesRef = useRef(new Set());
 
@@ -51,6 +53,12 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
     // Initialize synth (SuperSynth auto-connects to audioEngine.masterGainNode)
     if (!synthRef.current && audioEngine) {
       synthRef.current = new SuperSynth(audioEngine);
+    }
+
+    // Initialize draw mode synth
+    if (!drawSynthRef.current && audioEngine && audioEngine.audioContext) {
+      drawSynthRef.current = new DrawModeSynth(audioEngine.audioContext);
+      drawSynthRef.current.connect(audioEngine.masterGainNode);
     }
 
     // Keyboard to note mapping (chromatic scale starting from C3)
@@ -173,51 +181,6 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       if (visualizerRef.current) {
         visualizerRef.current.update(bandEnergies);
         visualizerRef.current.render(ctx);
-
-        // Get audio feedback from visual state
-        if (paulstretchRef.current && isActive) {
-          const feedback = visualizerRef.current.getAudioFeedback();
-
-          // Map interaction to stretch parameters
-          if (mouseRef.current.isDown) {
-            // X position controls stretch factor
-            const stretch = 1 + feedback.interactionX * 15; // 1x to 16x
-
-            // Y position controls grain size
-            const grainSize = 0.02 + feedback.interactionY * 0.4; // 20ms to 420ms
-
-            // Interaction mode affects volume
-            let volume = 0.3 + feedback.interactionEnergy * 0.5;
-
-            if (feedback.interactionMode === 'pull') {
-              // Pull mode: higher stretch, smaller grains
-              paulstretchRef.current.setStretchFactor(stretch * 1.5);
-              paulstretchRef.current.setGrainSize(grainSize * 0.5);
-              volume *= 0.8; // Softer
-            } else if (feedback.interactionMode === 'push') {
-              // Push mode: moderate stretch, larger grains
-              paulstretchRef.current.setStretchFactor(stretch * 0.8);
-              paulstretchRef.current.setGrainSize(grainSize * 1.5);
-              volume *= 1.2; // Louder
-            } else if (feedback.interactionMode === 'twist') {
-              // Twist mode: variable stretch based on flow disturbance
-              paulstretchRef.current.setStretchFactor(1 + feedback.flowDisturbance * 10);
-              paulstretchRef.current.setGrainSize(grainSize);
-              volume *= 1.1;
-            } else {
-              // Normal drag
-              paulstretchRef.current.setStretchFactor(stretch);
-              paulstretchRef.current.setGrainSize(grainSize);
-            }
-
-            paulstretchRef.current.setVolume(volume);
-          } else {
-            // Not dragging: use particle density for ambient effects
-            const ambientStretch = 1 + feedback.particleDensity * 3;
-            paulstretchRef.current.setStretchFactor(ambientStretch);
-            paulstretchRef.current.setVolume(0.3);
-          }
-        }
       }
 
       animationRef.current = requestAnimationFrame(animate);
@@ -242,10 +205,14 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       if (synthRef.current) {
         synthRef.current.disconnect();
       }
+
+      if (drawSynthRef.current) {
+        drawSynthRef.current.disconnect();
+      }
     };
   }, [isActive, audioLevel, audioEngine]);
 
-  // Mouse handlers
+  // Mouse handlers - Two-mode system
   const handleMouseDown = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -262,26 +229,48 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       ctrl: e.ctrlKey || e.metaKey
     };
 
-    if (visualizerRef.current) {
-      visualizerRef.current.handleMouseDown(x, y, modifiersRef.current);
-    }
+    // Determine mode based on modifiers
+    if (modifiersRef.current.shift) {
+      // MODIFY MODE: Shape vortex + paulstretch
+      mouseRef.current.mode = 'modify';
 
-    // Start paulstretch on interaction
-    if (paulstretchRef.current && !paulstretchRef.current.isPlaying) {
-      paulstretchRef.current.start();
+      // Start paulstretch for modify mode
+      if (paulstretchRef.current && !paulstretchRef.current.isPlaying) {
+        paulstretchRef.current.start();
+        console.log('Modify mode: Paulstretch started');
+      }
+
+      if (visualizerRef.current) {
+        visualizerRef.current.handleMouseDown(x, y, { shift: true });
+      }
+    } else if (modifiersRef.current.alt) {
+      // ALT MODE: Third effect (explosion burst)
+      mouseRef.current.mode = 'alt';
+
+      if (visualizerRef.current) {
+        visualizerRef.current.handleMouseDown(x, y, { alt: true });
+      }
+    } else {
+      // DRAW MODE: Generate ethereal tones
+      mouseRef.current.mode = 'draw';
+      // Draw mode doesn't need visualizer interaction, just draws
     }
   };
 
   const handleMouseMove = (e) => {
-    if (!mouseRef.current.isDown || !visualizerRef.current) return;
+    if (!mouseRef.current.isDown) return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
     // Calculate delta
     const dx = x - mouseRef.current.lastX;
     const dy = y - mouseRef.current.lastY;
+    const speed = Math.sqrt(dx * dx + dy * dy);
 
     // Update modifiers from event
     modifiersRef.current = {
@@ -290,17 +279,64 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       ctrl: e.ctrlKey || e.metaKey
     };
 
-    visualizerRef.current.handleMouseMove(x, y, dx, dy, modifiersRef.current);
+    const normalizedX = x / canvas.width;
+    const normalizedY = y / canvas.height;
+    const velocity = Math.min(1, speed / 10);
+
+    // Handle based on mode
+    if (mouseRef.current.mode === 'draw') {
+      // DRAW MODE: Generate ethereal tones
+      if (drawSynthRef.current && speed > 1) {
+        drawSynthRef.current.drawTone(x, y, velocity, normalizedX, normalizedY);
+      }
+
+      // Subtle visual trail (no vortex manipulation)
+      if (visualizerRef.current && speed > 2) {
+        const hue = normalizedX * 360;
+        for (let i = 0; i < Math.min(3, speed * 0.2); i++) {
+          visualizerRef.current.particles.push({
+            x: x + (Math.random() - 0.5) * 5,
+            y: y + (Math.random() - 0.5) * 5,
+            vx: dx * 0.1,
+            vy: dy * 0.1,
+            hue,
+            saturation: 60,
+            lightness: 70,
+            size: 1 + Math.random() * 2,
+            life: 1.0,
+            decay: 0.98
+          });
+        }
+      }
+    } else if (mouseRef.current.mode === 'modify') {
+      // MODIFY MODE: Shape vortex + control paulstretch
+      if (visualizerRef.current) {
+        visualizerRef.current.handleMouseMove(x, y, dx, dy, { shift: true });
+      }
+
+      // Control paulstretch parameters
+      if (paulstretchRef.current) {
+        const stretch = 1 + normalizedX * 15; // 1x to 16x
+        const grainSize = 0.02 + normalizedY * 0.4; // 20ms to 420ms
+        paulstretchRef.current.setStretchFactor(stretch);
+        paulstretchRef.current.setGrainSize(grainSize);
+        paulstretchRef.current.setVolume(0.5 + velocity * 0.3);
+      }
+    } else if (mouseRef.current.mode === 'alt') {
+      // ALT MODE: Push particles away
+      if (visualizerRef.current) {
+        visualizerRef.current.handleMouseMove(x, y, dx, dy, { alt: true });
+      }
+    }
 
     // Update last position
     mouseRef.current.lastX = x;
     mouseRef.current.lastY = y;
-
-    // Note: Paulstretch parameters are now controlled by feedback loop in animate()
   };
 
   const handleMouseUp = () => {
     mouseRef.current.isDown = false;
+    mouseRef.current.mode = 'none';
 
     if (visualizerRef.current) {
       visualizerRef.current.handleMouseUp();
@@ -337,10 +373,19 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
         textShadow: '0 0 5px rgba(0, 0, 0, 0.8)',
         lineHeight: '1.5'
       }}>
-        <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>Sound → Visuals → Sound (feedback loop)</div>
-        <div>Drag: Push vortex, paint energy, bend sound</div>
-        <div>Shift + Drag: Pull particles (ethereal) | Alt + Drag: Push (explosive) | Ctrl + Drag: Twist (chaotic)</div>
-        <div style={{ marginTop: '6px' }}>Keyboard Synth: AWSEDFTGYHUJKOLP; (piano layout)</div>
+        <div style={{ fontWeight: 'bold', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.5)' }}>
+          Two Modes: Draw & Modify
+        </div>
+        <div style={{ marginBottom: '4px' }}>
+          <span style={{ color: 'rgba(150, 255, 200, 0.5)' }}>Drag (Draw):</span> Paint ethereal tones from vortex
+        </div>
+        <div style={{ marginBottom: '4px' }}>
+          <span style={{ color: 'rgba(200, 150, 255, 0.5)' }}>Shift + Drag (Modify):</span> Shape vortex, paulstretch mic input
+        </div>
+        <div style={{ marginBottom: '8px' }}>
+          <span style={{ color: 'rgba(255, 200, 150, 0.5)' }}>Alt + Drag:</span> Explosive particle burst
+        </div>
+        <div>Keyboard Synth: AWSEDFTGYHUJKOLP; (piano layout)</div>
         <div>Space: Toggle stretch | 1-9: Stretch amount | G: Grain size</div>
       </div>
     </div>
