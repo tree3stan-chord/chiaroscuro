@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Container, Button, Alert } from 'react-bootstrap';
 import { FaPlay, FaPause } from 'react-icons/fa';
-import ChiaroscuroCanvas from './components/ChiaroscuroCanvas';
+import ChiaroscuroCanvas from './components/ChiaroscuroCanvasSimple';
 import ControlPanel from './components/ControlPanel';
 import AudioEngine from './lib/AudioEngine';
 
@@ -76,7 +76,10 @@ const ChiaroscuroSandbox = () => {
         audioEngineRef.current = new AudioEngine();
         await audioEngineRef.current.initialize();
 
-        console.log('Audio engine initialized');
+        // CRITICAL: Resume AudioContext (browsers require user gesture)
+        audioEngineRef.current.start();
+
+        console.log('Audio engine initialized and started');
         setIsActive(true);
       } catch (err) {
         console.error('Failed to initialize:', err);
