@@ -13,7 +13,7 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
   const paulstretchRef = useRef(null);
   const synthRef = useRef(null);
   const drawSynthRef = useRef(null);
-  const mouseRef = useRef({ isDown: false, lastX: 0, lastY: 0, mode: 'none' });
+  const mouseRef = useRef({ isDown: false, lastX: 0, lastY: 0, mode: 'none', clickStartTime: 0, clickStartX: 0, clickStartY: 0 });
   const modifiersRef = useRef({ shift: false, alt: false, ctrl: false });
   const activeNotesRef = useRef(new Set());
 
@@ -41,12 +41,19 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
 
     // Initialize paulstretch
     if (!paulstretchRef.current && audioEngine && audioEngine.audioContext) {
+      console.log('🎵 Initializing paulstretch...');
+      console.log('  - AudioContext state:', audioEngine.audioContext.state);
+      console.log('  - masterGainNode:', audioEngine.masterGainNode);
+
       paulstretchRef.current = new SimplePaulstretch(audioEngine.audioContext);
 
       // Connect to audio chain
       if (audioEngine.micGainNode) {
         paulstretchRef.current.startCapture(audioEngine.micGainNode);
         paulstretchRef.current.connect(audioEngine.masterGainNode);
+        console.log('🎵 Paulstretch connected to audio chain');
+      } else {
+        console.error('❌ micGainNode not available!');
       }
     }
 
@@ -221,6 +228,9 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
     mouseRef.current.isDown = true;
     mouseRef.current.lastX = x;
     mouseRef.current.lastY = y;
+    mouseRef.current.clickStartTime = Date.now();
+    mouseRef.current.clickStartX = x;
+    mouseRef.current.clickStartY = y;
 
     // Update modifiers from event
     modifiersRef.current = {
@@ -314,10 +324,20 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
         visualizerRef.current.handleMouseMove(x, y, dx, dy, { shift: true });
       }
 
-      // Control paulstretch parameters
+      // Control paulstretch based on drag distance from click origin
       if (paulstretchRef.current) {
-        const stretch = 1 + normalizedX * 15; // 1x to 16x
+        const dragDx = x - mouseRef.current.clickStartX;
+        const dragDy = y - mouseRef.current.clickStartY;
+        const dragDistance = Math.sqrt(dragDx * dragDx + dragDy * dragDy);
+
+        // Map drag distance to stretch: 0px=1x, 250px=8x (exponential curve)
+        const maxDragDistance = 250;
+        const normalizedDist = Math.min(dragDistance / maxDragDistance, 1.0);
+        const stretch = 1 + 7 * Math.pow(normalizedDist, 2); // 1x to 8x
+
+        // Grain size still from Y position (intuitive)
         const grainSize = 0.02 + normalizedY * 0.4; // 20ms to 420ms
+
         paulstretchRef.current.setStretchFactor(stretch);
         paulstretchRef.current.setGrainSize(grainSize);
         paulstretchRef.current.setVolume(0.5 + velocity * 0.3);
@@ -334,12 +354,70 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
     mouseRef.current.lastY = y;
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e) => {
+    const wasModifyMode = mouseRef.current.mode === 'modify';
+    const canvas = canvasRef.current;
+
+    // Detect quick click (short time, minimal movement)
+    const clickDuration = Date.now() - mouseRef.current.clickStartTime;
+    const dx = mouseRef.current.lastX - mouseRef.current.clickStartX;
+    const dy = mouseRef.current.lastY - mouseRef.current.clickStartY;
+    const moveDistance = Math.sqrt(dx * dx + dy * dy);
+    const isQuickClick = clickDuration < 200 && moveDistance < 10;
+
     mouseRef.current.isDown = false;
     mouseRef.current.mode = 'none';
 
     if (visualizerRef.current) {
       visualizerRef.current.handleMouseUp();
+    }
+
+    // Quick click = tonal explosion using mic input!
+    if (isQuickClick && audioEngine && canvas) {
+      const x = mouseRef.current.clickStartX;
+      const y = mouseRef.current.clickStartY;
+
+      // Map X position to pitch shift (-12 to +12 semitones)
+      const normalizedX = x / canvas.width;
+      const pitchShift = (normalizedX - 0.5) * 24;
+
+      // Map Y position to reverb amount (0 to 0.8) - top = more reverb
+      const normalizedY = 1 - (y / canvas.height);
+      const reverbAmount = normalizedY * 0.8;
+
+      // Trigger explosion audio using captured mic buffer
+      console.log('💥 Triggering explosion:', { pitchShift: pitchShift.toFixed(1), reverbAmount: reverbAmount.toFixed(2) });
+      console.log('  - audioEngine.audioContext.state:', audioEngine.audioContext?.state);
+      audioEngine.triggerExplosion(pitchShift, reverbAmount);
+
+      // Visual burst at click location
+      if (visualizerRef.current) {
+        const hue = normalizedX * 360;
+        for (let i = 0; i < 15; i++) {
+          const angle = (i / 15) * Math.PI * 2;
+          const speed = 2 + Math.random() * 3;
+          visualizerRef.current.particles.push({
+            x,
+            y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            hue,
+            saturation: 80,
+            lightness: 60,
+            size: 3 + Math.random() * 4,
+            life: 1.0,
+            decay: 0.96
+          });
+        }
+      }
+
+      console.log(`Explosion: pitch=${pitchShift.toFixed(1)}, reverb=${reverbAmount.toFixed(2)}`);
+    }
+
+    // Fade out paulstretch when releasing from modify mode
+    if (wasModifyMode && paulstretchRef.current && paulstretchRef.current.isPlaying) {
+      paulstretchRef.current.fadeOut(1.5);
+      console.log('Modify mode: Paulstretch fading out');
     }
   };
 
@@ -374,19 +452,19 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
         lineHeight: '1.5'
       }}>
         <div style={{ fontWeight: 'bold', marginBottom: '8px', color: 'rgba(255, 255, 255, 0.5)' }}>
-          Two Modes: Draw & Modify
+          Sound Playground
         </div>
         <div style={{ marginBottom: '4px' }}>
-          <span style={{ color: 'rgba(150, 255, 200, 0.5)' }}>Drag (Draw):</span> Paint ethereal tones from vortex
+          <span style={{ color: 'rgba(255, 200, 150, 0.5)' }}>Click:</span> Tonal explosion (X=pitch, Y=reverb)
         </div>
         <div style={{ marginBottom: '4px' }}>
-          <span style={{ color: 'rgba(200, 150, 255, 0.5)' }}>Shift + Drag (Modify):</span> Shape vortex, paulstretch mic input
+          <span style={{ color: 'rgba(150, 255, 200, 0.5)' }}>Drag:</span> Paint ethereal tones
         </div>
         <div style={{ marginBottom: '8px' }}>
-          <span style={{ color: 'rgba(255, 200, 150, 0.5)' }}>Alt + Drag:</span> Explosive particle burst
+          <span style={{ color: 'rgba(200, 150, 255, 0.5)' }}>Shift + Drag:</span> Paulstretch live mic (X=stretch, Y=grain)
         </div>
         <div>Keyboard Synth: AWSEDFTGYHUJKOLP; (piano layout)</div>
-        <div>Space: Toggle stretch | 1-9: Stretch amount | G: Grain size</div>
+        <div>Space: Toggle stretch | 1-9: Stretch amount</div>
       </div>
     </div>
   );
