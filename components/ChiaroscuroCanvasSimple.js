@@ -41,19 +41,12 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
 
     // Initialize paulstretch
     if (!paulstretchRef.current && audioEngine && audioEngine.audioContext) {
-      console.log('🎵 Initializing paulstretch...');
-      console.log('  - AudioContext state:', audioEngine.audioContext.state);
-      console.log('  - masterGainNode:', audioEngine.masterGainNode);
-
       paulstretchRef.current = new SimplePaulstretch(audioEngine.audioContext);
 
       // Connect to audio chain
       if (audioEngine.micGainNode) {
         paulstretchRef.current.startCapture(audioEngine.micGainNode);
         paulstretchRef.current.connect(audioEngine.masterGainNode);
-        console.log('🎵 Paulstretch connected to audio chain');
-      } else {
-        console.error('❌ micGainNode not available!');
       }
     }
 
@@ -94,7 +87,6 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       if (e.key >= '1' && e.key <= '9' && paulstretchRef.current) {
         const stretch = parseInt(e.key);
         paulstretchRef.current.setStretchFactor(stretch);
-        console.log(`Stretch factor: ${stretch}x`);
         return;
       }
 
@@ -104,10 +96,8 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
         if (paulstretchRef.current) {
           if (paulstretchRef.current.isPlaying) {
             paulstretchRef.current.stop();
-            console.log('Paulstretch stopped');
           } else {
             paulstretchRef.current.start();
-            console.log('Paulstretch started');
           }
         }
         return;
@@ -117,7 +107,6 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       if ((e.key === 'g' || e.key === 'G') && paulstretchRef.current) {
         const size = e.shiftKey ? 0.05 : 0.2;
         paulstretchRef.current.setGrainSize(size);
-        console.log(`Grain size: ${size}s`);
         return;
       }
 
@@ -140,8 +129,6 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
           const hue = (normalizedFreq * 300) % 360;
           visualizerRef.current.handleMouseDown(x, y, {});
         }
-
-        console.log(`Note: ${note} (${freq.toFixed(1)} Hz)`);
       }
     };
 
@@ -207,17 +194,20 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       if (paulstretchRef.current) {
         paulstretchRef.current.stop();
         paulstretchRef.current.disconnect();
+        paulstretchRef.current = null;
       }
 
       if (synthRef.current) {
         synthRef.current.disconnect();
+        synthRef.current = null;
       }
 
       if (drawSynthRef.current) {
         drawSynthRef.current.disconnect();
+        drawSynthRef.current = null;
       }
     };
-  }, [isActive, audioLevel, audioEngine]);
+  }, [isActive, audioEngine]);
 
   // Mouse handlers - Two-mode system
   const handleMouseDown = (e) => {
@@ -247,7 +237,6 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       // Start paulstretch for modify mode
       if (paulstretchRef.current && !paulstretchRef.current.isPlaying) {
         paulstretchRef.current.start();
-        console.log('Modify mode: Paulstretch started');
       }
 
       if (visualizerRef.current) {
@@ -386,8 +375,6 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
       const reverbAmount = normalizedY * 0.8;
 
       // Trigger explosion audio using captured mic buffer
-      console.log('💥 Triggering explosion:', { pitchShift: pitchShift.toFixed(1), reverbAmount: reverbAmount.toFixed(2) });
-      console.log('  - audioEngine.audioContext.state:', audioEngine.audioContext?.state);
       audioEngine.triggerExplosion(pitchShift, reverbAmount);
 
       // Visual burst at click location
@@ -410,14 +397,11 @@ const ChiaroscuroCanvasSimple = ({ isActive, audioLevel, audioEngine }) => {
           });
         }
       }
-
-      console.log(`Explosion: pitch=${pitchShift.toFixed(1)}, reverb=${reverbAmount.toFixed(2)}`);
     }
 
     // Fade out paulstretch when releasing from modify mode
     if (wasModifyMode && paulstretchRef.current && paulstretchRef.current.isPlaying) {
       paulstretchRef.current.fadeOut(1.5);
-      console.log('Modify mode: Paulstretch fading out');
     }
   };
 
